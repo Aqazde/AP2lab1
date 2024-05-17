@@ -11,8 +11,8 @@ import (
 
 const (
 	CONN_HOST = "localhost"
-	CONN_PORT = "3335"
-	CONN_TYPE = "tcp"
+	CONN_port = "3335"
+	CONN_type = "tcp"
 )
 
 var wg sync.WaitGroup
@@ -21,7 +21,7 @@ func main() {
 	defer wg.Wait()
 
 	// Connect to the server
-	conn, err := net.Dial(CONN_TYPE, CONN_HOST+":"+CONN_PORT)
+	conn, err := net.Dial(CONN_type, CONN_HOST+":"+CONN_port)
 	if err != nil {
 		fmt.Println("Error connecting to server:", err)
 		os.Exit(1)
@@ -79,7 +79,6 @@ func writeMessages(conn net.Conn) {
 
 		if message == "/leave" {
 			fmt.Println("Leaving chat...")
-			break
 		}
 	}
 	conn.Close()

@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	CONN_HOST = "localhost"
 	CONN_PORT = ":3335"
 	CONN_TYPE = "tcp"
 )
@@ -22,6 +23,8 @@ var (
 	historyMutex sync.Mutex
 	chatRooms    = make(map[string]*ChatRoom)
 	chatMutex    sync.Mutex
+	userCount    int
+	userCountMux sync.Mutex
 )
 
 func init() {
@@ -51,6 +54,7 @@ func NewClient(conn net.Conn) *Client {
 
 func (c *Client) JoinLobby() {
 	lobby.Join(c)
+
 }
 
 func (c *Client) Listen() {
@@ -65,7 +69,6 @@ func (c *Client) Listen() {
 	for {
 		message, err := c.reader.ReadString('\n')
 		if err != nil {
-			log.Printf("Error reading from client [%s]: %v", c.userName, err)
 			return
 		}
 		message = strings.TrimSpace(message)
@@ -73,7 +76,11 @@ func (c *Client) Listen() {
 			c.processCommand(message)
 		} else {
 			saveMessageToHistory(message)
-			c.chatRoom.Broadcast(fmt.Sprintf("[%s] %s: %s", time.Now().Format("2006-01-02 15:04:05"), c.userName, message))
+			if c.chatRoom != nil {
+				c.chatRoom.Broadcast(fmt.Sprintf("[%s] %s: %s", time.Now().Format("2006-01-02 15:04:05"), c.userName, message))
+			} else {
+				c.sendMessage("You are not in a chat room. Use /join <room_name> to join a chat room.")
+			}
 		}
 	}
 }
@@ -99,12 +106,12 @@ func (c *Client) processCommand(command string) {
 			return
 		}
 		if c.chatRoom != nil {
-			c.chatRoom.RemoveClient(c)
+			c.sendMessage("You are already in a chat room. Please leave it first.")
+			return
 		}
 		c.chatRoom = room
 		room.AddClient(c)
-		c.sendMessage(fmt.Sprintf("Notice: \"%s\" joined the chat room.", c.userName))
-		room.Broadcast(fmt.Sprintf("Notice: \"%s\" joined the chat room.", c.userName))
+		c.sendMessage(fmt.Sprintf("Notice: Joined chat room \"%s\".", roomName))
 	case "/create":
 		if len(parts) != 2 {
 			c.sendMessage("Usage: /create <chat_name>")
@@ -123,11 +130,21 @@ func (c *Client) processCommand(command string) {
 		chatMutex.Unlock()
 		c.sendMessage(fmt.Sprintf("Notice: Created chat room \"%s\".", roomName))
 	case "/leave":
-		if c.chatRoom != nil {
-			c.chatRoom.Broadcast(fmt.Sprintf("Notice: \"%s\" has left the chat room.", c.userName))
-			c.chatRoom.RemoveClient(c)
-			c.chatRoom = nil
+		if c.chatRoom == nil {
+			c.sendMessage("You are not in a chat room.")
+			return
 		}
+		c.chatRoom.RemoveClient(c)
+		c.sendMessage("Notice: Left the chat room.")
+		c.chatRoom = nil
+	case "/setUsername":
+		if len(parts) != 2 {
+			c.sendMessage("Usage: /setUsername <username>")
+			return
+		}
+		newUsername := parts[1]
+		c.userName = newUsername
+		c.sendMessage(fmt.Sprintf("Username set to: %s", newUsername))
 	default:
 		c.sendMessage(fmt.Sprintf("Unknown command: %s", parts[0]))
 	}
@@ -159,14 +176,12 @@ func (l *Lobby) Remove(client *Client) {
 	defer l.Unlock()
 	for i, c := range l.clients {
 		if c == client {
-			// This removes the client from the lobby slice.
 			l.clients = append(l.clients[:i], l.clients[i+1:]...)
 			break
 		}
 	}
 }
 
-// Broadcast sends a message to all clients in the lobby
 func (l *Lobby) Broadcast(message string) {
 	l.RLock()
 	defer l.RUnlock()
@@ -175,26 +190,22 @@ func (l *Lobby) Broadcast(message string) {
 	}
 }
 
-// ChatRoom represents a chat room
 type ChatRoom struct {
 	Name    string
 	Clients []*Client
 	sync.RWMutex
 }
 
-// NewChatRoom creates a new ChatRoom instance
 func NewChatRoom(name string) *ChatRoom {
 	return &ChatRoom{Name: name}
 }
 
-// AddClient adds a new client to the chat room
 func (cr *ChatRoom) AddClient(client *Client) {
 	cr.Lock()
 	defer cr.Unlock()
 	cr.Clients = append(cr.Clients, client)
 }
 
-// RemoveClient removes a client from the chat room
 func (cr *ChatRoom) RemoveClient(client *Client) {
 	cr.Lock()
 	defer cr.Unlock()
@@ -206,7 +217,6 @@ func (cr *ChatRoom) RemoveClient(client *Client) {
 	}
 }
 
-// Broadcast sends a message to all clients in the chat room
 func (cr *ChatRoom) Broadcast(message string) {
 	cr.RLock()
 	defer cr.RUnlock()
@@ -245,6 +255,6 @@ func main() {
 
 		client := NewClient(conn)
 		client.JoinLobby()
-		client.sendMessage("Welcome to the server! Type \"/help\" to get a list of commands.")
+		client.sendMessage("Welcome to the server! List of commands available: \"/create\", \"/join\", \"/leave\", \"/setUsername\"")
 	}
 }
