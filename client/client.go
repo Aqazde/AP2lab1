@@ -20,23 +20,19 @@ var wg sync.WaitGroup
 func main() {
 	defer wg.Wait()
 
-	// Connect to the server
 	conn, err := net.Dial(CONN_type, CONN_HOST+":"+CONN_port)
 	if err != nil {
 		fmt.Println("Error connecting to server:", err)
 		os.Exit(1)
 	}
 
-	// Start listening for messages from the server
 	wg.Add(1)
 	go readMessages(conn)
 
-	// Start sending messages to the server
 	wg.Add(1)
 	go writeMessages(conn)
 }
 
-// readMessages reads messages from the server and prints them to the console
 func readMessages(conn net.Conn) {
 	defer wg.Done()
 
@@ -50,8 +46,6 @@ func readMessages(conn net.Conn) {
 		fmt.Print(message)
 	}
 }
-
-// writeMessages reads user input and sends it to the server
 func writeMessages(conn net.Conn) {
 	defer wg.Done()
 

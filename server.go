@@ -25,6 +25,7 @@ var (
 	chatMutex    sync.Mutex
 	userCount    int
 	userCountMux sync.Mutex
+	bannedUsers  = make(map[string]bool)
 )
 
 func init() {
@@ -58,6 +59,16 @@ func (c *Client) JoinLobby() {
 }
 
 func (c *Client) Listen() {
+	log.Printf("User %s connected\n", c.userName)
+	defer func() {
+		c.conn.Close()
+		lobby.Remove(c)
+		if c.chatRoom != nil {
+			c.chatRoom.RemoveClient(c)
+		}
+		log.Printf("User %s disconnected\n", c.userName)
+	}()
+
 	defer func() {
 		c.conn.Close()
 		lobby.Remove(c)
@@ -110,6 +121,7 @@ func (c *Client) processCommand(command string) {
 			return
 		}
 		c.chatRoom = room
+		log.Printf("User %s joined chat room %s\n", c.userName, roomName)
 		room.AddClient(c)
 		c.sendMessage(fmt.Sprintf("Notice: Joined chat room \"%s\".", roomName))
 	case "/create":
@@ -128,6 +140,7 @@ func (c *Client) processCommand(command string) {
 		room := NewChatRoom(roomName)
 		chatRooms[roomName] = room
 		chatMutex.Unlock()
+		log.Printf("User %s created chat room %s\n", c.userName, roomName)
 		c.sendMessage(fmt.Sprintf("Notice: Created chat room \"%s\".", roomName))
 	case "/leave":
 		if c.chatRoom == nil {
@@ -135,6 +148,7 @@ func (c *Client) processCommand(command string) {
 			return
 		}
 		c.chatRoom.RemoveClient(c)
+		log.Printf("User %s left chat room\n", c.userName)
 		c.sendMessage("Notice: Left the chat room.")
 		c.chatRoom = nil
 	case "/setUsername":
@@ -143,6 +157,7 @@ func (c *Client) processCommand(command string) {
 			return
 		}
 		newUsername := parts[1]
+		log.Printf("User %s changed name to "+newUsername+"\n", c.userName)
 		c.userName = newUsername
 		c.sendMessage(fmt.Sprintf("Username set to: %s", newUsername))
 	default:
@@ -234,18 +249,37 @@ func saveMessageToHistory(message string) {
 	}
 }
 
+func ReminderBot() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			sendReminder("Don't forget to join chat room!")
+		}
+	}
+}
+func sendReminder(message string) {
+	lobby.RLock()
+	defer lobby.RUnlock()
+	for _, client := range lobby.clients {
+		client.sendMessage(message)
+	}
+}
+
 func main() {
 	defer historyFile.Close()
 
-	// Start listening on the specified port
 	listener, err := net.Listen(CONN_TYPE, CONN_PORT)
 	if err != nil {
 		log.Fatal("Error starting TCP server:", err)
 	}
 	defer listener.Close()
 	log.Println("Listening on " + CONN_PORT)
-
-	// Main loop to accept incoming connections
+	log.Println("write /help to get command list")
+	go handleConsoleInput()
+	go ReminderBot()
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -257,4 +291,76 @@ func main() {
 		client.JoinLobby()
 		client.sendMessage("Welcome to the server! List of commands available: \"/create\", \"/join\", \"/leave\", \"/setUsername\"")
 	}
+}
+
+func handleConsoleInput() {
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		input := scanner.Text()
+		parts := strings.Fields(input)
+		if len(parts) == 0 {
+			continue
+		}
+
+		switch parts[0] {
+		case "/status":
+			log.Println("Current server status: ...")
+		case "/stop":
+			log.Println("Server stopping...")
+			os.Exit(0)
+		case "/help":
+			log.Println("command '/status' - to get current server status")
+			log.Println("command '/stop' - to terminate server")
+			log.Println("command '/kick username' - to kick user from chat room")
+			log.Println("command '/ban username' - to ban user from server")
+		case "/kick":
+			if len(parts) != 2 {
+				log.Println("Usage: /kick username")
+				break
+			}
+			kickUser(parts[1])
+		case "/ban":
+			if len(parts) != 2 {
+				log.Println("Usage: /ban username")
+				break
+			}
+			banUser(parts[1])
+		default:
+			log.Printf("Unknown command: %s\n", input)
+		}
+	}
+	if scanner.Err() != nil {
+		log.Printf("Error reading from console: %v", scanner.Err())
+	}
+}
+
+func kickUser(username string) {
+	lobby.Lock()
+	defer lobby.Unlock()
+	for _, client := range lobby.clients {
+		if client.userName == username {
+			if client.chatRoom != nil {
+				client.chatRoom.RemoveClient(client)
+			}
+			log.Printf("User %s kicked from chat room\n", username)
+			client.sendMessage("You have been kicked from the chat room.")
+			return
+		}
+	}
+	log.Printf("User %s not found\n", username)
+}
+
+func banUser(username string) {
+	lobby.Lock()
+	defer lobby.Unlock()
+	for i, client := range lobby.clients {
+		if client.userName == username {
+			bannedUsers[username] = true
+			client.conn.Close()
+			lobby.clients = append(lobby.clients[:i], lobby.clients[i+1:]...)
+			log.Printf("User %s banned from server\n", username)
+			return
+		}
+	}
+	log.Printf("User %s not found\n", username)
 }
