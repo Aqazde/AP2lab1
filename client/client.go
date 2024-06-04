@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"os"
@@ -20,7 +21,11 @@ var wg sync.WaitGroup
 func main() {
 	defer wg.Wait()
 
-	conn, err := net.Dial(CONN_type, CONN_HOST+":"+CONN_port)
+	config := &tls.Config{
+		InsecureSkipVerify: true,
+	}
+
+	conn, err := tls.Dial(CONN_type, CONN_HOST+":"+CONN_port, config)
 	if err != nil {
 		fmt.Println("Error connecting to server:", err)
 		os.Exit(1)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -271,13 +272,21 @@ func sendReminder(message string) {
 func main() {
 	defer historyFile.Close()
 
-	listener, err := net.Listen(CONN_TYPE, CONN_PORT)
+	cer, err := tls.LoadX509KeyPair("certificate.crt", "private.key")
 	if err != nil {
-		log.Fatal("Error starting TCP server:", err)
+		log.Fatal("Error loading certificate:", err)
+	}
+
+	config := &tls.Config{Certificates: []tls.Certificate{cer}}
+
+	listener, err := tls.Listen(CONN_TYPE, CONN_PORT, config)
+	if err != nil {
+		log.Fatal("Error starting TLS server:", err)
 	}
 	defer listener.Close()
+
 	log.Println("Listening on " + CONN_PORT)
-	log.Println("write /help to get command list")
+	log.Println("Write /help to get command list")
 	go handleConsoleInput()
 	go ReminderBot()
 	for {
