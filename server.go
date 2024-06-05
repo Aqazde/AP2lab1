@@ -313,7 +313,10 @@ func handleConsoleInput() {
 
 		switch parts[0] {
 		case "/status":
-			log.Println("Current server status: ...")
+			lobby.RLock()
+			numClients := len(lobby.clients)
+			lobby.RUnlock()
+			log.Printf("Current server status: %d clients connected\n", numClients)
 		case "/stop":
 			log.Println("Server stopping...")
 			os.Exit(0)
